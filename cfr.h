@@ -1,0 +1,21 @@
+#ifndef _COMMON_H
+#define _COMMON_H
+
+#include "compressor/compressor.h"
+
+
+#define CURRENT_BR
+#define INTEGER_AVERAGE
+#define INTEGER_REGRETS
+/* NORMAL_COMPRESSOR, FAST_COMPRESSOR, or FSE_COMPRESSOR */
+#ifndef COMPRESSOR_TYPE
+#define COMPRESSOR_TYPE NORMAL_COMPRESSOR
+#endif
+#define RNG_STATELEN 32
+#define TRACK_MAX_ENCODER_SYMBOL
+#define TIME_PROFILE
+
+#define TRUNK_CUTOFFS
+#define RIVER_CUTOFFS
+
+#endif

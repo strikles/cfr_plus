@@ -1,0 +1,118 @@
+------------------------------ COMPILING ------------------------------
+Assuming you have mpich2 MPI and the Intel compiler installed, you
+should be able to just run 'make' to generate the CFR+ solver.
+
+If you wish to use gcc, edit the makefile to use gcc/g++ and the
+associated options.  Note that depending on the gcc version, you may
+have to edit/remove some of the gcc flags.  We also found that gcc
+produced a noticeably slower executable.
+
+We used mpich2 for our CFR+ runs, and you should almost certainly do
+the same, even if your cluster already has a local installation of
+some other MPI implementation with fancy fast network support.  Why?
+CFR+ uses relatively low network bandwidth so the fancy network
+support is all but wasted.  Even more importantly, all other MPI
+implementations we tested either interacted poorly with
+threads+semaphores (from a large decrease in speed, to actual broken
+behaviour of sem_post/sem_wait) and/or did not support
+MPI_THREAD_MULTIPLE forcing us to use even more bad/broken IPC to
+cover that lack of support.
+
+
+------------------------------ RUNNING ------------------------------
+Assuming you have a 200 node cluster and want to re-create the limit
+Texas Hold'em results, here's an example of the command needed.
+
+  mpiexec -n 200 ./cfr game=holdem.limit.2p.reverse_blinds.game split=2 threads=24 scratch=/ltmp/yourname/ scratchpool=36 regretscaling=3,0.5 regretscaling=4,0.5 avgscaling=3,1 avgscaling=4,1 mpi iters=2000 warmup=100 networkcopies=42 maxtime=4:16:00:00 dump=/home/yourname/cfrplus_scratch/ resume=/home/yourname/cfrplus_scratch/cfr.split-2.iter-1381.warm-100
+
+We ran for a short period of time due to job limits on a multi-user
+cluster, with at least one recent checkpoint.  We required space for
+three copies of the data: the most recent valid checkpoint (on a
+shared network drive), the working data (on the local drives of each
+node), and a new checkpoint that is dumped when the job finishes.
+
+Breaking the command down, we use mpiexec to start the job on the 200
+nodes specified by the cluster scheduler.
+
+game=holdem.limit.2p.reverse_blinds.game
+ We want CFR+ to use the game of limit Texas Hold'em.
+
+split=2
+ The trunk is the first two rounds.
+
+threads=24
+ Each node has multiple compute cores, and we want to use all of them.
+
+scratch=/ltmp/yourname/
+ Keep the working regrets and strategy for each node on disk.  This should
+ be a local drive, because there will be a large amount of I/O on each node
+ for the entire duration of the job.
+
+scratchpool=36
+ Maximum number of pending requests to decompress a subgame from disk.
+ Should be larger than the number of threads per node.
+
+regretscaling=3,0.5 regretscaling=4,0.5
+ During computation, regrets are double floating point values, but they
+ are truncated as lrint( regret * regretscaling[ round ] ).  In the first
+ two rounds, we use the default value of 16.
+
+ Note that regret values are expected numbers of chips, and the size
+ of the regretscaling parameter should match this.  For example, if
+ the game was scaled up by a factor of 10 so the blinds were 50/100,
+ the regrescaling parameters would be scaled up by a factor of 10 as
+ well to 160/160/5/5
+
+avgscaling=3,1 avgscaling=4,1
+ During computation, strategy probabilities are double floating point values,
+ but they are truncated as lrint( prob * weight * avgscaling[ round ] )
+ where weight is max( 0, iteration number - number of warmup iterations ).
+ In the first two rounds, we use the default value of 16.
+
+mpi
+ Let CFR+ know that we're using MPI for this run.  Otherwise, the mpiexec
+ command would be starting up 200 independent copies which are all trying
+ to solve the entire game by themselves.
+
+iters=2000
+ Maximum number of iterations to run.  CFR+ will stop early if the target
+ exploitability of the average strategy is reached (1.0mBB/hand by default.)
+
+warm=100
+ Start updating the average strategy after 100 iterations.  This will
+ often take slightly more iterations to reach a target exploitability
+ for the average strategy, but will require significantly less memory
+ if we are compressing the subgames.
+
+networkcopies=42
+ Maximum number of nodes that can be simultaneously copying files from/to
+ the dump/resume checkpoint.  At startup, the subgames in the resume
+ checkpoint are copied to the scratch directory of the appropriate nodes,
+ and at completion the working files in the scratch directories of each
+ node are copied to the dump directory.  On the cluster we used, there
+ was much more bandwidth available on the network+shared drive than a
+ single local drive (so we don't want to do the copy one node at a time)
+ but not enough to do all nodes at once.  This parameter will need to
+ be tuned to your particular cluster.
+
+maxtime=4:16:00:00
+ After finishing an iteration, if we have been running for 4 days and 16 hours
+ then we dump a checkpoint and quit.  If your cluster has a job time limit
+ of X hours, you will need to set this to X - iteration_time - dump_time.
+
+dump=/home/yourname/cfrplus_scratch/
+ When the run is finished (for whatever reason) save the regrets and
+ average strategy in /home/yourname/cfrplus_scratch.  This must be a
+ network drive which is accessible to all computation nodes.  If 1270
+ iterations have been completed (including iterations from previous runs)
+ then the files will be placed in a directory named something like
+ cfr.split-2.iter-1270.warm-100
+
+resume=/home/yourname/cfrplus_scratch/cfr.split-2.iter-1381.warm-100
+ At startup, use the saved regrets and average strategy from the
+ specified directory.  When using the 'scratch' argument, the files
+ are copied to the local drive, otherwise they are loaded into memory.
+ The 'resume' argument also parses the directory name to extract the
+ number of iterations that have been completed, the number of rounds
+ in the trunk, and the number of warmup iterations that were used.
+ On the first run, skip this argument: there's nothing to resume from yet!
